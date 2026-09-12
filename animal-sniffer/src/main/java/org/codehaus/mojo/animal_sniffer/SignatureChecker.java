@@ -32,6 +32,7 @@ import java.io.InputStream;
 import java.io.ObjectInputStream;
 import java.nio.CharBuffer;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
@@ -169,7 +170,9 @@ public class SignatureChecker extends ClassFileVisitor {
         ClassReader cr = new ClassReader(image);
 
         try {
-            cr.accept(new CheckingVisitor(name), 0);
+            Map<String, Set<Integer>> ignoredInlineCalls =
+                    KotlinInlineMethodAnalyzer.analyze(cr, annotationDescriptors);
+            cr.accept(new CheckingVisitor(name, ignoredInlineCalls), 0);
         } catch (ArrayIndexOutOfBoundsException e) {
             logger.error("Bad class file " + name);
             // MANIMALSNIFFER-9 it is a pity that ASM does not throw a nicer error on encountering a malformed
@@ -237,6 +240,7 @@ public class SignatureChecker extends ClassFileVisitor {
     }
 
     private class CheckingVisitor extends ClassVisitor {
+        private final Map<String, Set<Integer>> ignoredInlineCalls;
         private final Set<String> ignoredPackageCache;
 
         private String packagePrefix;
@@ -247,8 +251,9 @@ public class SignatureChecker extends ClassFileVisitor {
 
         private boolean ignoreClass = false;
 
-        public CheckingVisitor(String name) {
+        public CheckingVisitor(String name, Map<String, Set<Integer>> ignoredInlineCalls) {
             super(Opcodes.ASM9);
+            this.ignoredInlineCalls = ignoredInlineCalls;
             this.ignoredPackageCache = new HashSet<>(50 * ignoredPackageRules.size());
             this.name = name;
         }
@@ -329,7 +334,9 @@ public class SignatureChecker extends ClassFileVisitor {
         public MethodVisitor visitMethod(
                 int access, final String name, final String desc, String signature, String[] exceptions) {
             line = 0;
+            Set<Integer> ignoredCalls = ignoredInlineCalls.getOrDefault(name + desc, Collections.emptySet());
             return new MethodVisitor(Opcodes.ASM9) {
+                private int invocation;
                 /**
                  * True if @IgnoreJRERequirement is set.
                  */
@@ -372,8 +379,9 @@ public class SignatureChecker extends ClassFileVisitor {
 
                 @Override
                 public void visitMethodInsn(int opcode, String owner, String name, String desc, boolean itf) {
-                    checkType(Type.getReturnType(desc), ignoreError);
-                    check(owner, name + desc, ignoreError);
+                    boolean ignoreCall = ignoredCalls.contains(invocation++) || ignoreError;
+                    checkType(Type.getReturnType(desc), ignoreCall);
+                    check(owner, name + desc, ignoreCall);
                 }
 
                 @Override

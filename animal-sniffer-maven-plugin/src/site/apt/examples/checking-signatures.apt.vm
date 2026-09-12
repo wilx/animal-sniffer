@@ -416,3 +416,36 @@ public final class Someclass {
   ...
 </project>
 ---
+
+* Kotlin inline methods
+
+  Animal Sniffer can recognize a limited form of annotated Kotlin inline code
+  copied into another method of the same JVM class. For example, the getter and
+  its caller below can be declared in the same Kotlin file:
+
+-----------------
+@get:org.codehaus.mojo.animal_sniffer.IgnoreJRERequirement
+inline val Thread.newThreadId: Long
+    get() = threadId()
+
+fun compatibleThreadId(thread: Thread, supported: Boolean): Long =
+    if (supported) thread.newThreadId else thread.id
+-----------------
+
+  This support requires an unambiguous annotated declaration whose body loads
+  its single object receiver, invokes a no-argument instance method, and returns
+  that result directly. Animal Sniffer checks the copied instructions against
+  the declaration and Kotlin's retained inline scopes and SMAP source mapping.
+  It suppresses only the matching invocation. Direct calls elsewhere in the
+  caller, including calls on the same source line, remain checked.
+
+  This is not general annotation propagation through inlining. Overloaded
+  declarations, complex bodies, cross-class copies, overlapping exception
+  handlers, conflicting inline scopes, and missing or conflicting debug
+  information remain subject to normal signature checking. Keep the Kotlin
+  source mappings and local variable tables when using this support. The explicit
+  <<<@get:>>> target annotates the emitted getter; property annotation carrier methods are not
+  treated as getter annotations.
+
+  The annotation does not test whether an API is available at runtime. The
+  caller still needs an appropriate availability guard.
